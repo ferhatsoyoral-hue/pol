@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poliklinik Sekreter Atama</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- jsPDF and html2canvas libraries for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- Firebase libraries -->
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .page {
+            display: none;
+        }
+        .page.active {
+            display: block;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgb(0,0,0);
+            background-color: rgba(0,0,0,0.4);
+            justify-content: center;
+            align-items: center;
+            padding: 1rem;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            padding: 2rem;
+            border-radius: 1rem;
+            max-width: 90%;
+            max-height: 90%;
+            overflow-y: auto;
+            position: relative;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 2rem;
+            font-weight: bold;
+            position: absolute;
+            top: 1rem;
+            right: 1.5rem;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .day-cell {
+            min-height: 120px;
+            cursor: pointer;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            background-color: #fff;
+        }
+        .day-cell:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        @media (max-width: 768px) {
+            .grid-cols-7 {
+                grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            }
+        }
+        .status-message {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .status-message.show {
+            opacity: 1;
+        }
+        /* New styles for report header */
+        .report-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        .report-header h1 {
+            font-size: 1.875rem; /* text-3xl */
+            font-weight: 700; /* font-bold */
+            text-align: center;
+            color: #1f2937; /* text-gray-800 */
+        }
+        .report-header h2 {
+            font-size: 1.25rem; /* text-xl */
+            font-weight: 700; /* font-bold */
+            text-align: center;
+            color: #1f2937; /* text-gray-800 */
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center p-4 min-h-screen">
+    <div class="container mx-auto p-6 bg-white rounded-2xl shadow-xl max-w-7xl">
+
+        <!-- Calendar Page -->
+        <div id="calendar-page" class="page active">
+            <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Poliklinik Sekreter Atama Planı</h1>
+
+            <!-- Main Buttons -->
+            <div class="flex justify-center mb-6 space-x-4">
+                <button id="viewReportBtn" class="px-6 py-3 bg-blue-600 text-white font-medium rounded-xl shadow-md hover:bg-blue-700 transition duration-300">
+                    Raporu Görüntüle
+                </button>
+                <button id="savePlanBtn" class="px-6 py-3 bg-green-600 text-white font-medium rounded-xl shadow-md hover:bg-green-700 transition duration-300">
+                    Planı Kaydet
+                </button>
+            </div>
+
+            <div class="status-message text-center font-semibold mt-4" id="statusMessage"></div>
+
+            <!-- Calendar Header -->
+            <div class="flex justify-between items-center bg-gray-200 p-4 rounded-t-xl mb-4">
+                <button id="prevMonthBtn" class="bg-gray-300 p-2 rounded-full hover:bg-gray-400 transition duration-300">
+                    <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <h2 id="currentMonthYear" class="text-2xl font-bold text-gray-700"></h2>
+                <button id="nextMonthBtn" class="bg-gray-300 p-2 rounded-full hover:bg-gray-400 transition duration-300">
+                    <svg class="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/24/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>
+            </div>
+            
+            <!-- Week Days -->
+            <div class="grid grid-cols-7 text-center font-semibold text-gray-600 mb-2">
+                <div>Pzt</div>
+                <div>Sal</div>
+                <div>Çar</div>
+                <div>Per</div>
+                <div>Cum</div>
+                <div>Cmt</div>
+                <div>Paz</div>
+            </div>
+
+            <!-- Calendar Days -->
+            <div id="calendar-grid" class="grid grid-cols-7 gap-2">
+                <!-- Days will be added here by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Report Page -->
+        <div id="report-page" class="page">
+            <div id="report-container">
+                <div class="report-header">
+                    <h1 class="text-3xl font-bold text-gray-800">İLUH DEVLET HASTANESİ POLİKLİNİK PLANI</h1>
+                </div>
+                <div id="report-content" class="bg-gray-50 p-6 rounded-xl shadow-inner">
+                    <!-- Report content will be added here -->
+                </div>
+            </div>
+            
+            <div class="flex justify-center mt-6 space-x-4">
+                <button id="backToCalendarBtn" class="px-6 py-3 bg-gray-500 text-white font-medium rounded-xl shadow-md hover:bg-gray-600 transition duration-300">
+                    Takvime Dön
+                </button>
+                <button id="printReportBtn" class="px-6 py-3 bg-indigo-600 text-white font-medium rounded-xl shadow-md hover:bg-indigo-700 transition duration-300">
+                    Yazdır
+                </button>
+                <button id="exportPdfBtn" class="px-6 py-3 bg-red-600 text-white font-medium rounded-xl shadow-md hover:bg-red-700 transition duration-300">
+                    PDF Olarak İndir
+                </button>
+            </div>
+        </div>
+
+        <!-- Assignment Modal -->
+        <div id="assignmentModal" class="modal">
+            <div class="modal-content relative w-full max-w-2xl bg-white rounded-2xl p-8 shadow-2xl">
+                <span class="close text-gray-500 hover:text-gray-800 transition-colors duration-200" id="closeModalBtn">&times;</span>
+                <h3 id="modalDate" class="text-2xl font-semibold mb-4 text-center"></h3>
+                
+                <!-- Current Assignments List -->
+                <div id="currentAssignmentsList" class="mb-6">
+                    <h4 class="text-lg font-medium text-gray-700 mb-2">Gün İçindeki Atamalar</h4>
+                    <ul id="assignmentsList" class="space-y-2">
+                        <!-- Assignments will be added here by JavaScript -->
+                    </ul>
+                </div>
+                
+                <!-- New Assignment Form -->
+                <div id="newAssignmentForm" class="p-6 bg-gray-50 rounded-lg">
+                    <h4 class="text-lg font-medium text-gray-700 mb-4">Yeni Atama Ekle</h4>
+                    <div class="space-y-4">
+                        <div class="flex flex-col">
+                            <label for="klinikAdi" class="mb-1 text-sm font-medium text-gray-600">Poliklinik Adı</label>
+                            <select id="klinikAdiSelect" class="p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="" disabled selected>Poliklinik Seçiniz</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col">
+                            <label for="sekreterAdi" class="mb-1 text-sm font-medium text-gray-600">Sekreter Adı</label>
+                            <select id="sekreterAdiSelect" class="p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="" disabled selected>Sekreter Seçiniz</option>
+                            </select>
+                        </div>
+                        <div class="flex justify-end">
+                            <button id="addAssignmentBtn" class="px-4 py-2 bg-blue-600 text-white font-medium rounded-md shadow-sm hover:bg-blue-700 transition-colors duration-200">
+                                Atamayı Ekle
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Notification Modal -->
+        <div id="statusModal" class="modal">
+            <div class="modal-content relative w-full max-w-xs bg-white rounded-2xl p-6 text-center shadow-2xl">
+                <p id="statusModalMessage" class="font-semibold"></p>
+                <button id="closeStatusModalBtn" class="mt-4 px-4 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 transition-colors duration-200">
+                    Tamam
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase global variables
+        let db;
+        let auth;
+        let userId;
+
+        const __app_id = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+        const __firebase_config = typeof window.__firebase_config !== 'undefined' ? JSON.parse(window.__firebase_config) : {};
+        const __initial_auth_token = typeof window.__initial_auth_token !== 'undefined' ? window.__initial_auth_token : null;
+
+        // Constants
+        const clinicNames = [
+            'LEYLA ASLAN DOĞAN (AİLE HEKİMİ)',
+            'İSMET REBAR KADANIR (DAHİLİYE)',
+            'NİHAT ASLAN (DAHİLİYE)',
+            'ÇAĞATAY TAŞKIN (DAHİLİYE)',
+            'MURAT ASLAN (DAHİLİYE)',
+            'M.ATA İZMİR (ÇOCUK)',
+            'İDRİS MURG (ÇOCUK)',
+            'FARUK KEMAL BENİ (KADIN DOĞUM)',
+            'CELAL CENGİZ (KADIN DOĞUM)',
+            'MUSA EMİR (ORTOPEDİ)',
+            'DORUK SEVÜK (GÖZ)',
+            'MESUT YEŞİLSOY (GENEL CERRAHİ)',
+            'HÜSEYİN SEMİZ (BEYİN CERRAHİ)',
+            'İLYAS KAVAK (KARDİYOLOJİ)',
+            'MEHMET SÖĞÜT (FTR)',
+            'TAHA YİĞİT BAŞAR (CİLDİYE)',
+            'ESMA GÖÇER (PSKİYATRİ)',
+            'HÜSNA KAAN (ÇOCUK PSKİYATRİ)'
+        ];
+        const secretaryNames = ['Aslı', 'Berk', 'Cem', 'Deniz', 'Ela', 'Gamze'];
+        const weekDays = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+
+        // DOM Elements
+        const calendarGrid = document.getElementById('calendar-grid');
+        const currentMonthYear = document.getElementById('currentMonthYear');
+        const prevMonthBtn = document.getElementById('prevMonthBtn');
+        const nextMonthBtn = document.getElementById('nextMonthBtn');
+        const viewReportBtn = document.getElementById('viewReportBtn');
+        const savePlanBtn = document.getElementById('savePlanBtn');
+        const backToCalendarBtn = document.getElementById('backToCalendarBtn');
+        const printReportBtn = document.getElementById('printReportBtn');
+        const exportPdfBtn = document.getElementById('exportPdfBtn');
+        const statusMessageEl = document.getElementById('statusMessage');
+        const reportContentEl = document.getElementById('report-content');
+        const reportContainerEl = document.getElementById('report-container');
+
+        // Modal Elements
+        const modal = document.getElementById('assignmentModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalDateEl = document.getElementById('modalDate');
+        const klinikAdiSelect = document.getElementById('klinikAdiSelect');
+        const sekreterAdiSelect = document.getElementById('sekreterAdiSelect');
+        const addAssignmentBtn = document.getElementById('addAssignmentBtn');
+        const assignmentsListEl = document.getElementById('assignmentsList');
+
+        // Status Modal
+        const statusModal = document.getElementById('statusModal');
+        const statusModalMessageEl = document.getElementById('statusModalMessage');
+        const closeStatusModalBtn = document.getElementById('closeStatusModalBtn');
+
+        // State variables
+        let date = new Date();
+        let currentSelectedDate = null;
+        let assignments = {};
+
+        // Functions
+
+        /**
+         * Initializes Firebase and signs in the user.
+         */
+        const initFirebase = async () => {
+            try {
+                const app = initializeApp(__firebase_config);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                if (__initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                userId = auth.currentUser?.uid || crypto.randomUUID();
+                console.log("Firebase initialized. User ID:", userId);
+
+                // Start listening for data from Firestore
+                listenForAssignments();
+            } catch (error) {
+                console.error("An error occurred while initializing Firebase:", error);
+                showStatus('Firebase bağlantı hatası.', 'text-red-600');
+            }
+        };
+
+        /**
+         * Listens for real-time data changes in the database.
+         */
+        const listenForAssignments = () => {
+            const docRef = doc(db, `/artifacts/${__app_id}/users/${userId}/assignments`, 'monthlyPlan');
+            onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    assignments = docSnap.data();
+                    console.log("Assignments updated:", assignments);
+                    renderCalendar(); // Re-render calendar with updated data
+                } else {
+                    assignments = {};
+                    console.log("No assignment data yet.");
+                    renderCalendar();
+                }
+            }, (error) => {
+                console.error("Error listening for data:", error);
+                showStatus('Veri okuma hatası.', 'text-red-600');
+            });
+        };
+
+        /**
+         * Renders the calendar based on the current month.
+         */
+        const renderCalendar = () => {
+            date.setDate(1);
+            const month = date.getMonth();
+            const year = date.getFullYear();
+            const firstDayIndex = date.getDay();
+            const lastDay = new Date(year, month + 1, 0).getDate();
+            const prevLastDay = new Date(year, month, 0).getDate();
+
+            const monthNames = [
+                "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+                "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+            ];
+
+            currentMonthYear.innerHTML = `${monthNames[month]} ${year}`;
+            calendarGrid.innerHTML = '';
+
+            // Add days from the previous month
+            for (let i = (firstDayIndex === 0 ? 6 : firstDayIndex - 1); i > 0; i--) {
+                const dayEl = document.createElement('div');
+                dayEl.className = 'day-cell text-gray-400 p-2 text-right';
+                dayEl.textContent = prevLastDay - i + 1;
+                calendarGrid.appendChild(dayEl);
+            }
+
+            // Add days from the current month
+            for (let i = 1; i <= lastDay; i++) {
+                const dayEl = document.createElement('div');
+                const formattedDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                
+                dayEl.className = `day-cell p-3 text-right rounded-lg shadow-sm relative transition-all duration-200 border border-gray-200 hover:border-blue-400`;
+                dayEl.innerHTML = `<span class="font-bold text-lg text-gray-800">${i}</span>`;
+                dayEl.dataset.date = formattedDate;
+
+                // Show assignment count if there are assignments for the day
+                if (assignments[formattedDate] && assignments[formattedDate].length > 0) {
+                    dayEl.classList.add('bg-blue-100', 'border-blue-400', 'hover:bg-blue-200');
+                    const assignmentCount = assignments[formattedDate].length;
+                    const assignmentBadge = document.createElement('span');
+                    assignmentBadge.className = 'absolute top-1 left-1 text-xs font-semibold px-2 py-1 bg-blue-500 text-white rounded-full';
+                    assignmentBadge.textContent = `${assignmentCount} Atama`;
+                    dayEl.appendChild(assignmentBadge);
+                }
+
+                dayEl.addEventListener('click', () => showAssignmentModal(formattedDate));
+                calendarGrid.appendChild(dayEl);
+            }
+        };
+
+        /**
+         * Changes the calendar month.
+         * @param {number} offset - -1 for previous month, 1 for next month.
+         */
+        const changeMonth = (offset) => {
+            date.setMonth(date.getMonth() + offset);
+            renderCalendar();
+        };
+
+        /**
+         * Displays a specific page.
+         * @param {string} pageId - The ID of the page to display.
+         */
+        const showPage = (pageId) => {
+            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+        };
+
+        /**
+         * Shows the assignment modal and updates its content.
+         * @param {string} formattedDate - Date in 'YYYY-MM-DD' format.
+         */
+        const showAssignmentModal = (formattedDate) => {
+            currentSelectedDate = formattedDate;
+            const dateObj = new Date(formattedDate);
+            modalDateEl.textContent = `${dateObj.getDate()} ${dateObj.toLocaleString('tr-TR', { month: 'long', year: 'numeric' })} ${weekDays[dateObj.getDay()]}`;
+
+            const dailyAssignments = assignments[formattedDate] || [];
+
+            // List current assignments
+            renderAssignmentsList(dailyAssignments);
+
+            // Update select options excluding already assigned
+            updateSelectOptions(dailyAssignments);
+
+            // Show the modal
+            modal.style.display = 'flex';
+        };
+        
+        /**
+         * Creates and updates the assignment list inside the modal.
+         * @param {Array} dailyAssignments - List of daily assignments.
+         */
+        const renderAssignmentsList = (dailyAssignments) => {
+            assignmentsListEl.innerHTML = '';
+            if (dailyAssignments.length === 0) {
+                assignmentsListEl.innerHTML = '<li class="text-gray-500 italic">Bugün için henüz atama yapılmamış.</li>';
+            } else {
+                dailyAssignments.forEach(assignment => {
+                    const listItem = document.createElement('li');
+                    listItem.className = 'bg-gray-100 p-3 rounded-md shadow-sm border border-gray-200';
+                    listItem.innerHTML = `<span class="font-medium text-blue-600">${assignment.klinik}</span> - Sekreter: <span class="font-medium text-green-600">${assignment.sekreter}</span>`;
+                    assignmentsListEl.appendChild(listItem);
+                });
+            }
+        };
+
+        /**
+         * Filters dropdown menus based on current assignments.
+         * @param {Array} dailyAssignments - List of daily assignments.
+         */
+        const updateSelectOptions = (dailyAssignments) => {
+            const assignedClinics = dailyAssignments.map(a => a.klinik);
+            const assignedSecretaries = dailyAssignments.map(a => a.sekreter);
+
+            // Filter clinic select list
+            klinikAdiSelect.innerHTML = '<option value="" disabled selected>Poliklinik Seçiniz</option>';
+            clinicNames.filter(name => !assignedClinics.includes(name)).forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                klinikAdiSelect.appendChild(option);
+            });
+
+            // Filter secretary select list
+            sekreterAdiSelect.innerHTML = '<option value="" disabled selected>Sekreter Seçiniz</option>';
+            secretaryNames.filter(name => !assignedSecretaries.includes(name)).forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                sekreterAdiSelect.appendChild(option);
+            });
+        };
+
+        /**
+         * Saves a new assignment and updates the UI.
+         */
+        const addAssignment = () => {
+            const selectedKlinik = klinikAdiSelect.value;
+            const selectedSekreter = sekreterAdiSelect.value;
+
+            if (!selectedKlinik || !selectedSekreter) {
+                showStatusModal('Lütfen hem poliklinik hem de sekreter seçimi yapın.', 'text-red-600');
+                return;
+            }
+
+            const newAssignment = {
+                klinik: selectedKlinik,
+                sekreter: selectedSekreter
+            };
+
+            if (!assignments[currentSelectedDate]) {
+                assignments[currentSelectedDate] = [];
+            }
+            assignments[currentSelectedDate].push(newAssignment);
+
+            // Save assignments to the database
+            savePlan();
+            
+            // Update UI immediately
+            renderAssignmentsList(assignments[currentSelectedDate]);
+            updateSelectOptions(assignments[currentSelectedDate]);
+            
+            // Reset selections
+            klinikAdiSelect.value = '';
+            sekreterAdiSelect.value = '';
+        };
+
+        /**
+         * Saves assignments to Firestore.
+         */
+        const savePlan = async () => {
+            try {
+                const docRef = doc(db, `/artifacts/${__app_id}/users/${userId}/assignments`, 'monthlyPlan');
+                await setDoc(docRef, assignments);
+                showStatus('Plan başarıyla kaydedildi!', 'text-green-600');
+            } catch (error) {
+                console.error('An error occurred while saving the document:', error);
+                showStatus('Plan kaydedilirken bir hata oluştu.', 'text-red-600');
+            }
+        };
+
+        /**
+         * Generates the report and switches to the report view.
+         */
+        const generateReport = () => {
+            reportContentEl.innerHTML = '';
+            
+            if (Object.keys(assignments).length === 0 || Object.values(assignments).every(arr => arr.length === 0)) {
+                reportContentEl.innerHTML = '<p class="text-center text-gray-500 italic">Henüz bir atama planı oluşturulmamış.</p>';
+                return;
+            }
+
+            const sortedDates = Object.keys(assignments).sort((a, b) => new Date(a) - new Date(b));
+            
+            sortedDates.forEach(dateStr => {
+                const dailyAssignments = assignments[dateStr];
+                if (dailyAssignments.length > 0) {
+                    const dateObj = new Date(dateStr);
+                    const dayName = weekDays[dateObj.getDay()];
+                    const dateText = `${dateObj.toLocaleDateString('tr-TR')} (${dayName})`;
+                    
+                    const daySection = document.createElement('div');
+                    daySection.className = 'mb-6';
+                    
+                    const dateHeader = document.createElement('h3');
+                    dateHeader.className = 'text-lg font-bold text-gray-700 mb-2 p-2 bg-gray-300 rounded-t-lg';
+                    dateHeader.textContent = dateText;
+                    daySection.appendChild(dateHeader);
+                    
+                    const table = document.createElement('table');
+                    table.className = 'w-full table-auto border-collapse border border-gray-300 rounded-b-lg shadow-sm';
+                    
+                    const tableHeader = `
+                        <thead class="bg-gray-200">
+                            <tr>
+                                <th class="p-3 text-left text-sm font-semibold text-gray-600 border border-gray-300">Doktor Adı</th>
+                                <th class="p-3 text-left text-sm font-semibold text-gray-600 border border-gray-300">Sekreter Adı</th>
+                                <th class="p-3 text-left text-sm font-semibold text-gray-600 border border-gray-300">Açıklama</th>
+                            </tr>
+                        </thead>
+                    `;
+                    table.innerHTML = tableHeader;
+                    
+                    const tableBody = document.createElement('tbody');
+                    
+                    dailyAssignments.forEach(assignment => {
+                        const row = document.createElement('tr');
+                        row.className = 'hover:bg-gray-100 transition-colors duration-200';
+                        
+                        row.innerHTML = `
+                            <td class="p-3 border border-gray-300 text-sm text-gray-700">${assignment.klinik}</td>
+                            <td class="p-3 border border-gray-300 text-sm text-gray-700">${assignment.sekreter}</td>
+                            <td class="p-3 border border-gray-300 text-sm text-gray-700"></td> <!-- Blank comment field -->
+                        `;
+                        tableBody.appendChild(row);
+                    });
+                    
+                    table.appendChild(tableBody);
+                    daySection.appendChild(table);
+                    reportContentEl.appendChild(daySection);
+                }
+            });
+            
+            showPage('report-page');
+        };
+        
+        /**
+         * Exports the report to a PDF file.
+         */
+        const exportReportToPdf = () => {
+            window.jsPDF = window.jspdf.jsPDF;
+            const reportContainer = document.getElementById('report-container');
+
+            // Convert report container to a canvas using html2canvas
+            html2canvas(reportContainer, {
+                scale: 2 // Increase scale for better quality
+            }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const imgWidth = 210;
+                const pageHeight = 295;
+                const imgHeight = canvas.height * imgWidth / canvas.width;
+                let heightLeft = imgHeight;
+                let position = 0;
+
+                pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+
+                while (heightLeft > 0) {
+                    position = heightLeft - pageHeight;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                    heightLeft -= pageHeight;
+                }
+
+                pdf.save('Poliklinik_Atama_Raporu.pdf');
+                showStatusModal('Rapor başarıyla PDF olarak indirildi.', 'text-green-600');
+            }).catch(error => {
+                console.error("An error occurred while exporting PDF:", error);
+                showStatusModal('PDF oluşturulurken bir hata oluştu.', 'text-red-600');
+            });
+        };
+
+        /**
+         * Shows a temporary status message.
+         * @param {string} message - Message to display.
+         * @param {string} colorClass - Tailwind class for message color.
+         */
+        const showStatus = (message, colorClass) => {
+            statusMessageEl.textContent = message;
+            statusMessageEl.className = `status-message show font-semibold mt-4 ${colorClass}`;
+            setTimeout(() => {
+                statusMessageEl.classList.remove('show');
+            }, 3000);
+        };
+
+        /**
+         * Shows the status modal.
+         * @param {string} message - Message to display.
+         * @param {string} colorClass - Tailwind class for message color.
+         */
+        const showStatusModal = (message, colorClass) => {
+            statusModalMessageEl.textContent = message;
+            statusModalMessageEl.className = `font-semibold ${colorClass}`;
+            statusModal.style.display = 'flex';
+        };
+
+        // Event listeners
+        window.onload = () => {
+            initFirebase();
+            showPage('calendar-page');
+        };
+        
+        prevMonthBtn.addEventListener('click', () => changeMonth(-1));
+        nextMonthBtn.addEventListener('click', () => changeMonth(1));
+        viewReportBtn.addEventListener('click', () => {
+            generateReport();
+            showPage('report-page');
+        });
+        savePlanBtn.addEventListener('click', savePlan);
+        backToCalendarBtn.addEventListener('click', () => showPage('calendar-page'));
+        printReportBtn.addEventListener('click', () => window.print());
+        exportPdfBtn.addEventListener('click', exportReportToPdf);
+        addAssignmentBtn.addEventListener('click', addAssignment);
+        closeModalBtn.addEventListener('click', () => modal.style.display = 'none');
+        modal.addEventListener('click', (e) => {
+            if (e.target.id === 'assignmentModal') {
+                modal.style.display = 'none';
+            }
+        });
+        closeStatusModalBtn.addEventListener('click', () => statusModal.style.display = 'none');
+
+    </script>
+</body>
+</html>
